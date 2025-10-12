@@ -420,6 +420,6 @@ CV (%),{cv:.2f}
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <small>Système de Métrologie v2.0 | Laboratoire de Mesures et Étalonnage</small>
+    <small> Laboratoire de Mesures et Étalonnage</small>
 </div>
 """, unsafe_allow_html=True)
