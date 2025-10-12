@@ -4,6 +4,20 @@ import numpy as np
 from datetime import datetime
 from io import BytesIO, StringIO
 
+# Vérification des dépendances Excel (pour debug)
+EXCEL_ENGINES = []
+try:
+    import openpyxl
+    EXCEL_ENGINES.append('openpyxl')
+except ImportError:
+    pass
+
+try:
+    import xlsxwriter
+    EXCEL_ENGINES.append('xlsxwriter')
+except ImportError:
+    pass
+
 # Configuration de la page
 st.set_page_config(page_title="Laboratoire de Métrologie", page_icon="🔬", layout="wide")
 
@@ -166,9 +180,10 @@ with col1:
                 "text/csv"
             )
         with col_temp2:
-            # Pour Excel, on utilise openpyxl
+            # Pour Excel, on utilise xlsxwriter comme alternative
             buffer = BytesIO()
             try:
+                # Essayer openpyxl d'abord
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     template_df.to_excel(writer, sheet_name='Mesures')
                 excel_template = buffer.getvalue()
@@ -178,9 +193,24 @@ with col1:
                     "template_mesures.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-            except (ImportError, Exception) as e:
-                st.warning(f"⚠️ Export Excel non disponible: {str(e)}")
-                st.info("💡 Utilisez le template CSV.")
+            except ImportError:
+                try:
+                    # Fallback sur xlsxwriter
+                    buffer = BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        template_df.to_excel(writer, sheet_name='Mesures')
+                    excel_template = buffer.getvalue()
+                    st.download_button(
+                        "📥 Template Excel",
+                        excel_template,
+                        "template_mesures.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except Exception as e:
+                    st.warning(f"⚠️ Export Excel non disponible")
+                    st.info("💡 Installez openpyxl: `pip install openpyxl`")
+            except Exception as e:
+                st.error(f"❌ Erreur: {str(e)}")
     
     with tab_input3:
         st.subheader("🎲 Charger des Données de Test")
@@ -431,68 +461,91 @@ RÉSULTATS
         )
     
     with col_export3:
-        # Export Excel avec statistiques
+        # Export Excel avec statistiques - Support multi-engines
         buffer = BytesIO()
-        try:
-            # Utiliser openpyxl pour créer un fichier Excel avec plusieurs feuilles
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                # Feuille 1: Mesures brutes
-                df.to_excel(writer, sheet_name='Mesures', index=True)
+        excel_success = False
+        
+        # Essayer plusieurs engines dans l'ordre
+        for engine in ['openpyxl', 'xlsxwriter']:
+            try:
+                with pd.ExcelWriter(buffer, engine=engine) as writer:
+                    # Feuille 1: Mesures brutes
+                    df.to_excel(writer, sheet_name='Mesures', index=True)
+                    
+                    # Feuille 2: Stats par échantillon
+                    stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons', index=True)
+                    
+                    # Feuille 3: Stats par opérateur
+                    stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs', index=True)
+                    
+                    # Feuille 4: Résumé général
+                    resume = pd.DataFrame({
+                        'Indicateur': ['Moyenne générale', 'Écart-type général', 'Minimum', 'Maximum', 'Étendue', 'Coefficient Variation (%)'],
+                        'Valeur': [
+                            f"{df.values.mean():.3f} {unite}",
+                            f"{df.values.std():.3f} {unite}",
+                            f"{df.values.min():.3f} {unite}",
+                            f"{df.values.max():.3f} {unite}",
+                            f"{etendue:.3f} {unite}",
+                            f"{(df.values.std() / df.values.mean() * 100):.2f}%"
+                        ]
+                    })
+                    resume.to_excel(writer, sheet_name='Résumé', index=False)
+                    
+                    # Feuille 5: Configuration
+                    config = pd.DataFrame({
+                        'Paramètre': ['Mesurande', 'Unité', 'Classe', 'EMT', 'Résolution', 'Température', 'Homogénéité', 'Nb Échantillons', 'Nb Opérateurs', 'Date'],
+                        'Valeur': [
+                            mesurande,
+                            unite,
+                            classe,
+                            f"±{emt} {unite}",
+                            f"{CLASSES_DB[classe]['Resolution']} {unite}",
+                            f"{temperature}°C",
+                            homogeneite,
+                            df.shape[0],
+                            df.shape[1],
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        ]
+                    })
+                    config.to_excel(writer, sheet_name='Configuration', index=False)
                 
-                # Feuille 2: Stats par échantillon
-                stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons', index=True)
+                excel_export = buffer.getvalue()
+                st.download_button(
+                    label="📥 Export Excel Complet",
+                    data=excel_export,
+                    file_name=f"rapport_metrologie_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="5 feuilles : Mesures, Stats Échantillons, Stats Opérateurs, Résumé, Configuration"
+                )
+                excel_success = True
+                break  # Si succès, sortir de la boucle
                 
-                # Feuille 3: Stats par opérateur
-                stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs', index=True)
-                
-                # Feuille 4: Résumé général
-                resume = pd.DataFrame({
-                    'Indicateur': ['Moyenne générale', 'Écart-type général', 'Minimum', 'Maximum', 'Étendue', 'Coefficient Variation (%)'],
-                    'Valeur': [
-                        f"{df.values.mean():.3f} {unite}",
-                        f"{df.values.std():.3f} {unite}",
-                        f"{df.values.min():.3f} {unite}",
-                        f"{df.values.max():.3f} {unite}",
-                        f"{etendue:.3f} {unite}",
-                        f"{(df.values.std() / df.values.mean() * 100):.2f}%"
-                    ]
-                })
-                resume.to_excel(writer, sheet_name='Résumé', index=False)
-                
-                # Feuille 5: Configuration
-                config = pd.DataFrame({
-                    'Paramètre': ['Mesurande', 'Unité', 'Classe', 'EMT', 'Résolution', 'Température', 'Homogénéité', 'Nb Échantillons', 'Nb Opérateurs', 'Date'],
-                    'Valeur': [
-                        mesurande,
-                        unite,
-                        classe,
-                        f"±{emt} {unite}",
-                        f"{CLASSES_DB[classe]['Resolution']} {unite}",
-                        f"{temperature}°C",
-                        homogeneite,
-                        df.shape[0],
-                        df.shape[1],
-                        datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    ]
-                })
-                config.to_excel(writer, sheet_name='Configuration', index=False)
+            except ImportError:
+                continue  # Essayer le prochain engine
+            except Exception as e:
+                st.error(f"⚠️ Erreur avec {engine}: {str(e)}")
+                continue
+        
+        # Si aucun engine n'a fonctionné
+        if not excel_success:
+            st.error("❌ Export Excel impossible")
+            st.info("💡 Installez un moteur Excel:\n```bash\npip install openpyxl\n```\nou utilisez l'export CSV")
             
-            excel_export = buffer.getvalue()
+            # Bouton CSV de secours
+            csv_backup = df.to_csv()
             st.download_button(
-                label="📥 Export Excel Complet",
-                data=excel_export,
-                file_name=f"rapport_metrologie_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help="5 feuilles : Mesures, Stats Échantillons, Stats Opérateurs, Résumé, Configuration"
+                label="📥 Export CSV (Secours)",
+                data=csv_backup,
+                file_name=f"mesures_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                type="secondary"
             )
-        except Exception as e:
-            st.error(f"⚠️ Erreur lors de l'export Excel: {str(e)}")
-            st.info("💡 Utilisez l'export CSV à la place.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <small> Laboratoire de Mesures et Étalonnage</small>
+    <small>Système de Métrologie v1.0 | Laboratoire de Mesures et Étalonnage</small>
 </div>
 """, unsafe_allow_html=True)
