@@ -158,18 +158,20 @@ with col1:
                 "text/csv"
             )
         with col_temp2:
-            # Pour Excel, on utilise un buffer
-            from io import BytesIO
+            # Pour Excel, on utilise openpyxl
             buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                template_df.to_excel(writer, sheet_name='Mesures')
-            excel_template = buffer.getvalue()
-            st.download_button(
-                "📥 Template Excel",
-                excel_template,
-                "template_mesures.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            try:
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    template_df.to_excel(writer, sheet_name='Mesures')
+                excel_template = buffer.getvalue()
+                st.download_button(
+                    "📥 Template Excel",
+                    excel_template,
+                    "template_mesures.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except ImportError:
+                st.warning("⚠️ Export Excel non disponible. Utilisez le template CSV.")
     
     with tab_input3:
         st.subheader("🎲 Charger des Données de Test")
@@ -422,22 +424,25 @@ RÉSULTATS
     with col_export3:
         # Export Excel avec statistiques
         buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df.to_excel(writer, sheet_name='Mesures')
-            stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons')
-            stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs')
-        excel_export = buffer.getvalue()
-        st.download_button(
-            label="📥 Export Excel",
-            data=excel_export,
-            file_name=f"mesures_completes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        try:
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Mesures')
+                stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons')
+                stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs')
+            excel_export = buffer.getvalue()
+            st.download_button(
+                label="📥 Export Excel",
+                data=excel_export,
+                file_name=f"mesures_completes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except ImportError:
+            st.warning("⚠️ Export Excel non disponible. Utilisez CSV à la place.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <small> Laboratoire de Mesures et Étalonnage</small>
+    <small>Système de Métrologie v1.0 | Laboratoire de Mesures et Étalonnage</small>
 </div>
 """, unsafe_allow_html=True)
