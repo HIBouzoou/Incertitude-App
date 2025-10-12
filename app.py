@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 
 # Configuration de la page
 st.set_page_config(page_title="Laboratoire de Métrologie", page_icon="🔬", layout="wide")
@@ -53,6 +53,15 @@ with st.sidebar:
     
     total_mesures = nb_echantillons * nb_operateurs
     st.success(f"**Total: {total_mesures} mesures à effectuer**")
+    
+    # Bouton de réinitialisation
+    st.markdown("---")
+    st.subheader("🔄 Réinitialisation")
+    if st.button("🗑️ Effacer et Réinitialiser Tout", type="secondary", use_container_width=True):
+        st.session_state.mesures = None
+        st.session_state.validated = False
+        st.success("✅ Application réinitialisée !")
+        st.rerun()
 
 # Corps principal
 col1, col2 = st.columns([2, 1])
@@ -129,7 +138,6 @@ with col1:
             
             if text_data and st.button("✅ Confirmer l'import Texte"):
                 try:
-                    from io import StringIO
                     df_import = pd.read_csv(StringIO(text_data), sep=sep_map[separateur], index_col=0, header=None)
                     df_import.columns = [f"Opérateur {i+1}" for i in range(df_import.shape[1])]
                     st.session_state.mesures = df_import
@@ -170,8 +178,9 @@ with col1:
                     "template_mesures.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-            except ImportError:
-                st.warning("⚠️ Export Excel non disponible. Utilisez le template CSV.")
+            except (ImportError, Exception) as e:
+                st.warning(f"⚠️ Export Excel non disponible: {str(e)}")
+                st.info("💡 Utilisez le template CSV.")
     
     with tab_input3:
         st.subheader("🎲 Charger des Données de Test")
@@ -425,24 +434,65 @@ RÉSULTATS
         # Export Excel avec statistiques
         buffer = BytesIO()
         try:
+            # Utiliser openpyxl pour créer un fichier Excel avec plusieurs feuilles
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Mesures')
-                stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons')
-                stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs')
+                # Feuille 1: Mesures brutes
+                df.to_excel(writer, sheet_name='Mesures', index=True)
+                
+                # Feuille 2: Stats par échantillon
+                stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons', index=True)
+                
+                # Feuille 3: Stats par opérateur
+                stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs', index=True)
+                
+                # Feuille 4: Résumé général
+                resume = pd.DataFrame({
+                    'Indicateur': ['Moyenne générale', 'Écart-type général', 'Minimum', 'Maximum', 'Étendue', 'Coefficient Variation (%)'],
+                    'Valeur': [
+                        f"{df.values.mean():.3f} {unite}",
+                        f"{df.values.std():.3f} {unite}",
+                        f"{df.values.min():.3f} {unite}",
+                        f"{df.values.max():.3f} {unite}",
+                        f"{etendue:.3f} {unite}",
+                        f"{(df.values.std() / df.values.mean() * 100):.2f}%"
+                    ]
+                })
+                resume.to_excel(writer, sheet_name='Résumé', index=False)
+                
+                # Feuille 5: Configuration
+                config = pd.DataFrame({
+                    'Paramètre': ['Mesurande', 'Unité', 'Classe', 'EMT', 'Résolution', 'Température', 'Homogénéité', 'Nb Échantillons', 'Nb Opérateurs', 'Date'],
+                    'Valeur': [
+                        mesurande,
+                        unite,
+                        classe,
+                        f"±{emt} {unite}",
+                        f"{CLASSES_DB[classe]['Resolution']} {unite}",
+                        f"{temperature}°C",
+                        homogeneite,
+                        df.shape[0],
+                        df.shape[1],
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    ]
+                })
+                config.to_excel(writer, sheet_name='Configuration', index=False)
+            
             excel_export = buffer.getvalue()
             st.download_button(
-                label="📥 Export Excel",
+                label="📥 Export Excel Complet",
                 data=excel_export,
-                file_name=f"mesures_completes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                file_name=f"rapport_metrologie_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="5 feuilles : Mesures, Stats Échantillons, Stats Opérateurs, Résumé, Configuration"
             )
-        except ImportError:
-            st.warning("⚠️ Export Excel non disponible. Utilisez CSV à la place.")
+        except Exception as e:
+            st.error(f"⚠️ Erreur lors de l'export Excel: {str(e)}")
+            st.info("💡 Utilisez l'export CSV à la place.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <small>Système de Métrologie v1.0 | Laboratoire de Mesures et Étalonnage</small>
+    <small> Laboratoire de Mesures et Étalonnage</small>
 </div>
 """, unsafe_allow_html=True)
