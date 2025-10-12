@@ -2,8 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from io import BytesIO, StringIO
-import base64
+from io import StringIO
 
 # Configuration de la page
 st.set_page_config(page_title="Laboratoire de Métrologie", page_icon="🔬", layout="wide")
@@ -15,131 +14,6 @@ CLASSES_DB = {
     "Classe 1.5": {"EMT": 1.5, "Resolution": 0.1, "Plage": "0-500"},
     "Classe 2.5": {"EMT": 2.5, "Resolution": 0.5, "Plage": "0-1000"},
 }
-
-# Fonction pour créer un lien de téléchargement Excel
-def create_excel_download(df, stats_echantillons, stats_operateurs, mesurande, unite, classe, emt, temperature, homogeneite, etendue):
-    """Crée un fichier Excel avec plusieurs feuilles sans dépendances externes"""
-    output = BytesIO()
-    
-    try:
-        # Essayer avec xlsxwriter (plus fiable sur cloud)
-        import xlsxwriter
-        
-        # Option pour gérer les NaN
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True, 'nan_inf_to_errors': True})
-        
-        # Formats
-        header_format = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
-        cell_format = workbook.add_format({'border': 1})
-        title_format = workbook.add_format({'bold': True, 'font_size': 14})
-        
-        # Feuille 1: Mesures brutes
-        worksheet1 = workbook.add_worksheet('Mesures')
-        worksheet1.write(0, 0, 'Échantillons', header_format)
-        for col, header in enumerate(df.columns):
-            worksheet1.write(0, col + 1, header, header_format)
-        for row, idx in enumerate(df.index):
-            worksheet1.write(row + 1, 0, idx, cell_format)
-            for col, val in enumerate(df.iloc[row]):
-                # Gérer les NaN
-                if pd.isna(val):
-                    worksheet1.write(row + 1, col + 1, '', cell_format)
-                else:
-                    worksheet1.write(row + 1, col + 1, float(val), cell_format)
-        
-        # Feuille 2: Stats par échantillon
-        worksheet2 = workbook.add_worksheet('Stats Échantillons')
-        stats_echantillons_reset = stats_echantillons.reset_index()
-        for col, header in enumerate(stats_echantillons_reset.columns):
-            worksheet2.write(0, col, header, header_format)
-        for row in range(len(stats_echantillons_reset)):
-            for col in range(len(stats_echantillons_reset.columns)):
-                worksheet2.write(row + 1, col, stats_echantillons_reset.iloc[row, col], cell_format)
-        
-        # Feuille 3: Stats par opérateur
-        worksheet3 = workbook.add_worksheet('Stats Opérateurs')
-        stats_operateurs_reset = stats_operateurs.reset_index()
-        for col, header in enumerate(stats_operateurs_reset.columns):
-            worksheet3.write(0, col, header, header_format)
-        for row in range(len(stats_operateurs_reset)):
-            for col in range(len(stats_operateurs_reset.columns)):
-                worksheet3.write(row + 1, col, stats_operateurs_reset.iloc[row, col], cell_format)
-        
-        # Feuille 4: Résumé
-        worksheet4 = workbook.add_worksheet('Résumé')
-        worksheet4.write(0, 0, 'RÉSUMÉ GÉNÉRAL', title_format)
-        resume_data = [
-            ['Indicateur', 'Valeur'],
-            ['Moyenne générale', f"{df.values.mean():.3f} {unite}"],
-            ['Écart-type général', f"{df.values.std():.3f} {unite}"],
-            ['Minimum', f"{df.values.min():.3f} {unite}"],
-            ['Maximum', f"{df.values.max():.3f} {unite}"],
-            ['Étendue', f"{etendue:.3f} {unite}"],
-            ['Coefficient Variation (%)', f"{(df.values.std() / df.values.mean() * 100):.2f}%"]
-        ]
-        for row, data in enumerate(resume_data):
-            for col, val in enumerate(data):
-                fmt = header_format if row == 0 else cell_format
-                worksheet4.write(row + 2, col, val, fmt)
-        
-        # Feuille 5: Configuration
-        worksheet5 = workbook.add_worksheet('Configuration')
-        worksheet5.write(0, 0, 'CONFIGURATION', title_format)
-        config_data = [
-            ['Paramètre', 'Valeur'],
-            ['Mesurande', mesurande],
-            ['Unité', unite],
-            ['Classe', classe],
-            ['EMT', f"±{emt} {unite}"],
-            ['Résolution', f"{CLASSES_DB[classe]['Resolution']} {unite}"],
-            ['Température', f"{temperature}°C"],
-            ['Homogénéité', homogeneite],
-            ['Nb Échantillons', df.shape[0]],
-            ['Nb Opérateurs', df.shape[1]],
-            ['Date', datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
-        ]
-        for row, data in enumerate(config_data):
-            for col, val in enumerate(data):
-                fmt = header_format if row == 0 else cell_format
-                worksheet5.write(row + 2, col, val, fmt)
-        
-        workbook.close()
-        return output.getvalue()
-        
-    except ImportError:
-        # Fallback: utiliser openpyxl
-        try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Mesures')
-                stats_echantillons.to_excel(writer, sheet_name='Stats_Échantillons')
-                stats_operateurs.to_excel(writer, sheet_name='Stats_Opérateurs')
-                
-                resume = pd.DataFrame({
-                    'Indicateur': ['Moyenne générale', 'Écart-type général', 'Minimum', 'Maximum', 'Étendue', 'CV (%)'],
-                    'Valeur': [
-                        f"{df.values.mean():.3f} {unite}",
-                        f"{df.values.std():.3f} {unite}",
-                        f"{df.values.min():.3f} {unite}",
-                        f"{df.values.max():.3f} {unite}",
-                        f"{etendue:.3f} {unite}",
-                        f"{(df.values.std() / df.values.mean() * 100):.2f}%"
-                    ]
-                })
-                resume.to_excel(writer, sheet_name='Résumé', index=False)
-                
-                config = pd.DataFrame({
-                    'Paramètre': ['Mesurande', 'Unité', 'Classe', 'EMT', 'Résolution', 'Température', 
-                                  'Homogénéité', 'Nb Échantillons', 'Nb Opérateurs', 'Date'],
-                    'Valeur': [mesurande, unite, classe, f"±{emt} {unite}", 
-                               f"{CLASSES_DB[classe]['Resolution']} {unite}", f"{temperature}°C",
-                               homogeneite, df.shape[0], df.shape[1], 
-                               datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
-                })
-                config.to_excel(writer, sheet_name='Configuration', index=False)
-            
-            return output.getvalue()
-        except:
-            return None
 
 # Initialisation de la session state
 if 'mesures' not in st.session_state:
@@ -212,7 +86,7 @@ with col1:
         st.subheader("📥 Importer vos données")
         
         # Import fichier
-        uploaded_file = st.file_uploader("Charger un fichier", type=['csv', 'xlsx', 'xls', 'txt'])
+        uploaded_file = st.file_uploader("Charger un fichier CSV", type=['csv', 'txt'])
         
         if uploaded_file is not None:
             try:
@@ -221,8 +95,6 @@ with col1:
                 
                 if file_extension == 'csv':
                     df_import = pd.read_csv(uploaded_file, index_col=0)
-                elif file_extension in ['xlsx', 'xls']:
-                    df_import = pd.read_excel(uploaded_file, index_col=0)
                 elif file_extension == 'txt':
                     df_import = pd.read_csv(uploaded_file, sep='\t', index_col=0)
                 else:
@@ -244,7 +116,8 @@ with col1:
         # Import texte
         st.markdown("---")
         st.subheader("📝 Coller des données")
-        text_data = st.text_area("Données (séparées par tabulation ou virgule)", height=150)
+        text_data = st.text_area("Données (séparées par tabulation ou virgule)", height=150, 
+                                 placeholder="Échantillon1\t12.5\t12.6\t12.4\nÉchantillon2\t12.7\t12.5\t12.6")
         
         if text_data:
             col_sep1, col_sep2 = st.columns(2)
@@ -270,28 +143,22 @@ with col1:
                 except Exception as e:
                     st.error(f"❌ Erreur: {str(e)}")
         
-        # Templates
+        # Template CSV
         st.markdown("---")
-        st.subheader("📋 Télécharger un modèle")
+        st.subheader("📋 Télécharger un modèle CSV")
         template_df = pd.DataFrame(
             np.nan,
             index=[f"Échantillon {i+1}" for i in range(int(nb_echantillons))],
             columns=[f"Opérateur {i+1}" for i in range(int(nb_operateurs))]
         )
         
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            st.download_button("📥 Template CSV", template_df.to_csv(), "template.csv", "text/csv")
-        with col_t2:
-            # Template Excel simple
-            excel_data = create_excel_download(
-                template_df, template_df, template_df, 
-                "Template", unite, classe, CLASSES_DB[classe]['EMT'], 
-                temperature, homogeneite, 0
-            )
-            if excel_data:
-                st.download_button("📥 Template Excel", excel_data, "template.xlsx", 
-                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            "📥 Télécharger Template CSV", 
+            template_df.to_csv(), 
+            "template_mesures.csv", 
+            "text/csv",
+            help="Fichier CSV vide à remplir avec vos mesures"
+        )
     
     with tab_input3:
         st.subheader("🎲 Données de Test")
@@ -379,7 +246,7 @@ with col1:
         
         if st.button("✅ Valider", type="primary"):
             if edited_df.isna().any().any():
-                st.warning("⚠️ Cellules vides détectées")
+                st.warning("⚠️ Certaines cellules sont vides")
             else:
                 st.session_state.mesures = edited_df
                 st.session_state.validated = True
@@ -395,15 +262,16 @@ with col2:
 # Section Résultats
 if st.session_state.validated and st.session_state.mesures is not None:
     st.markdown("---")
-    st.header("📈 Résultats")
+    st.header("📈 Résultats et Analyses")
     
     df = st.session_state.mesures
     
+    # Calculs statistiques
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("Moyenne", f"{df.values.mean():.3f} {unite}")
-        st.metric("Écart-type", f"{df.values.std():.3f} {unite}")
+        st.metric("Moyenne générale", f"{df.values.mean():.3f} {unite}")
+        st.metric("Écart-type général", f"{df.values.std():.3f} {unite}")
     
     with col2:
         st.metric("Minimum", f"{df.values.min():.3f} {unite}")
@@ -413,12 +281,13 @@ if st.session_state.validated and st.session_state.mesures is not None:
         etendue = df.values.max() - df.values.min()
         st.metric("Étendue", f"{etendue:.3f} {unite}")
         cv = (df.values.std() / df.values.mean() * 100) if df.values.mean() != 0 else 0
-        st.metric("CV", f"{cv:.2f} %")
+        st.metric("Coefficient Variation", f"{cv:.2f} %")
     
-    tab1, tab2, tab3 = st.tabs(["📊 Échantillons", "👥 Opérateurs", "📋 Complet"])
+    # Analyses détaillées
+    tab1, tab2, tab3 = st.tabs(["📊 Par Échantillon", "👥 Par Opérateur", "📋 Tableau Complet"])
     
     with tab1:
-        st.subheader("Stats par échantillon")
+        st.subheader("Statistiques par échantillon")
         stats_echantillons = pd.DataFrame({
             'Moyenne': df.mean(axis=1),
             'Écart-type': df.std(axis=1),
@@ -429,7 +298,7 @@ if st.session_state.validated and st.session_state.mesures is not None:
         st.dataframe(stats_echantillons.round(3), width=700)
     
     with tab2:
-        st.subheader("Stats par opérateur")
+        st.subheader("Statistiques par opérateur")
         stats_operateurs = pd.DataFrame({
             'Moyenne': df.mean(axis=0),
             'Écart-type': df.std(axis=0),
@@ -440,10 +309,12 @@ if st.session_state.validated and st.session_state.mesures is not None:
         st.dataframe(stats_operateurs.round(3), width=700)
     
     with tab3:
+        st.subheader("Tableau complet des mesures")
         st.dataframe(df.round(3), width=700)
     
+    # Analyse de conformité
     st.markdown("---")
-    st.subheader("🎯 Conformité")
+    st.subheader("🎯 Analyse de Conformité")
     
     emt = CLASSES_DB[classe]['EMT']
     ecart_type = df.values.std()
@@ -452,25 +323,27 @@ if st.session_state.validated and st.session_state.mesures is not None:
     
     with col1:
         if ecart_type <= emt / 3:
-            st.success(f"✅ Excellent: {ecart_type:.3f} << {emt/3:.3f}")
+            st.success(f"✅ **Excellent:** Écart-type ({ecart_type:.3f}) << EMT/3 ({emt/3:.3f})")
         elif ecart_type <= emt / 2:
-            st.info(f"ℹ️ Acceptable: {ecart_type:.3f} < {emt/2:.3f}")
+            st.info(f"ℹ️ **Acceptable:** Écart-type ({ecart_type:.3f}) < EMT/2 ({emt/2:.3f})")
         else:
-            st.error(f"❌ Non conforme: {ecart_type:.3f} > {emt/2:.3f}")
+            st.error(f"❌ **Non conforme:** Écart-type ({ecart_type:.3f}) > EMT/2 ({emt/2:.3f})")
     
     with col2:
-        st.write(f"**Références:**")
+        st.write(f"**Paramètres de référence:**")
         st.write(f"• EMT: ±{emt} {unite}")
         st.write(f"• Résolution: {CLASSES_DB[classe]['Resolution']} {unite}")
         st.write(f"• Température: {temperature}°C")
         st.write(f"• Homogénéité: {homogeneite}")
     
+    # Exports
     st.markdown("---")
-    st.subheader("📥 Exports")
+    st.subheader("📥 Exporter les Résultats")
     
     col_e1, col_e2, col_e3 = st.columns(3)
     
     with col_e1:
+        # Export rapport texte
         rapport = f"""RAPPORT DE MÉTROLOGIE
 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 =====================================
@@ -482,34 +355,71 @@ CONFIGURATION
 - Température: {temperature}°C
 - Homogénéité: {homogeneite}
 
-RÉSULTATS
+PLAN DE MESURE
+- Échantillons: {df.shape[0]}
+- Opérateurs: {df.shape[1]}
+- Total mesures: {df.shape[0] * df.shape[1]}
+
+RÉSULTATS GÉNÉRAUX
 - Moyenne: {df.values.mean():.3f} {unite}
 - Écart-type: {df.values.std():.3f} {unite}
 - Min: {df.values.min():.3f} {unite}
 - Max: {df.values.max():.3f} {unite}
 - Étendue: {etendue:.3f} {unite}
+- CV: {cv:.2f} %
+
+CONFORMITÉ
+- EMT/3: {emt/3:.3f} {unite}
+- EMT/2: {emt/2:.3f} {unite}
+- Écart-type mesuré: {ecart_type:.3f} {unite}
+- Statut: {'✅ Excellent' if ecart_type <= emt/3 else '⚠️ Acceptable' if ecart_type <= emt/2 else '❌ Non conforme'}
         """
-        st.download_button("📄 Rapport TXT", rapport, f"rapport_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        st.download_button(
+            "📄 Rapport TXT", 
+            rapport, 
+            f"rapport_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            help="Rapport complet au format texte"
+        )
     
     with col_e2:
-        st.download_button("📊 Export CSV", df.to_csv(), f"mesures_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        # Export CSV des mesures
+        st.download_button(
+            "📊 Mesures CSV", 
+            df.to_csv(), 
+            f"mesures_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            help="Données brutes des mesures"
+        )
     
     with col_e3:
-        excel_data = create_excel_download(
-            df, stats_echantillons, stats_operateurs,
-            mesurande, unite, classe, emt, temperature, homogeneite, etendue
-        )
-        if excel_data:
-            st.download_button(
-                "📗 Export Excel",
-                excel_data,
-                f"rapport_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help="5 feuilles complètes"
-            )
-        else:
-            st.warning("⚠️ Excel non disponible")
-            st.download_button("📊 CSV (alternative)", df.to_csv(), f"mesures_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        # Export CSV complet avec stats
+        csv_complet = f"""MESURES BRUTES
+{df.to_csv()}
 
+STATISTIQUES PAR ÉCHANTILLON
+{stats_echantillons.to_csv()}
+
+STATISTIQUES PAR OPÉRATEUR
+{stats_operateurs.to_csv()}
+
+RÉSUMÉ
+Moyenne,{df.values.mean():.3f}
+Écart-type,{df.values.std():.3f}
+Minimum,{df.values.min():.3f}
+Maximum,{df.values.max():.3f}
+Étendue,{etendue:.3f}
+CV (%),{cv:.2f}
+"""
+        st.download_button(
+            "📋 Export Complet CSV", 
+            csv_complet, 
+            f"rapport_complet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            help="Toutes les données et statistiques"
+        )
+
+# Footer
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666;'><small>Laboratoire de Métrologie </small></div>", unsafe_allow_html=True)
+st.markdown("""
+<div style='text-align: center; color: #666;'>
+    <small>Système de Métrologie v2.0 | Laboratoire de Mesures et Étalonnage</small>
+</div>
+""", unsafe_allow_html=True)
